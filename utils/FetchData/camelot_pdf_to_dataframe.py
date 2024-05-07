@@ -39,7 +39,7 @@ def merge_columns(df):
 
 def main():
     # Path to the PDF file
-    pdf_path = "C:/Users/Darshan.Singh/Documents/PDF2Excel/pdf/MRI_CMROLL_0326_LIGHT4MC.pdf"
+    pdf_path = "/files/pdf/MRI_CMROLL_0326_LIGHT4MC.pdf"
 
     # Extract tables from the PDF
     dataframes = extract_tables_from_pdf(pdf_path)
@@ -62,7 +62,7 @@ def main():
     # print(combined_df.head())
 
     # Path to the Excel file
-    excel_file = "C:/Users/Darshan.Singh/Documents/PDF2Excel/excel/output.xlsx"
+    excel_file = "/files/excel/output.xlsx"
 
     # Write the combined DataFrame to the Excel file
     combined_df.to_excel(excel_file, index=False)

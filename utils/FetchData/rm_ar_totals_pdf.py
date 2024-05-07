@@ -109,7 +109,7 @@ import re
 import pandas as pd
 
 # Open the PDF file
-with pdfplumber.open("C:/Users/Darshan.Singh/Documents/PDF2Excel/pdf/MRI_RMAGEDEL_0326_LIGHT4MC.pdf") as pdf:
+with pdfplumber.open("/files/pdf/MRI_RMAGEDEL_0326_LIGHT4MC.pdf") as pdf:
     # Initialize an empty list to store extracted data
     all_data = []
 

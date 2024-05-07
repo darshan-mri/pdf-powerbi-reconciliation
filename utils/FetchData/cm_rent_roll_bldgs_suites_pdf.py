@@ -3,7 +3,7 @@ import re
 import pandas as pd
 
 # Open the PDF file
-with pdfplumber.open("C:/Users/Darshan.Singh/Documents/PDF2Excel/pdf/MRI_CMROLL_0326_LIGHT4MC.pdf") as pdf:
+with pdfplumber.open("/files/pdf/MRI_CMROLL_0326_LIGHT4MC.pdf") as pdf:
     # Initialize an empty list to store extracted values
     extracted_values = []
 
@@ -25,7 +25,7 @@ with pdfplumber.open("C:/Users/Darshan.Singh/Documents/PDF2Excel/pdf/MRI_CMROLL_
 df = pd.DataFrame(extracted_values, columns=["Column1", "Column2"])
 
 # Specify the file path where you want to save the Excel file
-file_path = "C:/Users/Darshan.Singh/Documents/PDF2Excel/excel/output.xlsx"
+file_path = "/files/excel/output.xlsx"
 
 # Write the DataFrame to an Excel file
 df.to_excel(file_path, index=False)

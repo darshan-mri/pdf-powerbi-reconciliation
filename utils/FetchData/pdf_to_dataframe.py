@@ -2,7 +2,7 @@ import pdfplumber
 import pandas as pd
 
 # Path to your PDF file
-pdf_path = "C:/Users/Darshan.Singh/Documents/PDF2Excel/pdf/MRI_CMROLL_0326_LIGHT4MC.pdf"
+pdf_path = "/files/pdf/MRI_CMROLL_0326_LIGHT4MC.pdf"
 
 # Initialize an empty list to store rows
 rows = []
