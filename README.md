@@ -20,11 +20,10 @@ python --version
 
 ```powershell
 cd C:\
-git clone <YOUR-REMOTE-URL-FOR>/PDFValidation.git
+git clone https://github.com/darshan-mri/PDFValidation.git
 cd PDFValidation
 ```
 
-Replace `<YOUR-REMOTE-URL-FOR>` with your actual Git remote (e.g. `https://github.com/your-org`).
 
 ### 3. Create and activate a virtual environment
 
