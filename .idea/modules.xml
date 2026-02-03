@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/PDF2Excel.iml" filepath="$PROJECT_DIR$/.idea/PDF2Excel.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/PDFValidation.iml" filepath="$PROJECT_DIR$/.idea/PDFValidation.iml" />
     </modules>
   </component>
 </project>
