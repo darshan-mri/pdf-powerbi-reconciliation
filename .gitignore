@@ -23,3 +23,6 @@ Thumbs.db
 
 # Local-only config override (optional)
 config.local.ini
+
+#Files folder
+files/

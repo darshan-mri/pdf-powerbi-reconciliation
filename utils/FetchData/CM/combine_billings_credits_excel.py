@@ -22,24 +22,19 @@ def split_building_id_name(val):
     parts = [p.strip() for p in str(val).split(' - ', 1)]
     return parts[0], parts[1] if len(parts) > 1 else pd.NA
 
-def split_tenant(val):
-    if pd.isna(val):
-        return pd.NA, pd.NA
-    parts = [p.strip() for p in str(val).split(' - ', 1)]
-    return parts[0], parts[1] if len(parts) > 1 else (parts[0], pd.NA)
-
 # ---------- TRANSFORM BILLINGS ----------
 df_billings[['Building ID', 'Building Name']] = df_billings['Building ID - Name'].apply(lambda x: pd.Series(split_building_id_name(x)))
-df_billings[['Occupant', 'Lease Id']] = df_billings['Tenant'].apply(lambda x: pd.Series(split_tenant(x)))
 
-# Drop unnecessary columns
-df_billings = df_billings.drop(columns=['Portfolio Name - ID', 'Property ID - Name', 'Building ID - Name'])
+# Drop unnecessary columns (only drop if they exist)
+billings_cols_to_drop = ['Portfolio Name - ID', 'Property ID - Name', 'Building ID - Name']
+df_billings = df_billings.drop(columns=[c for c in billings_cols_to_drop if c in df_billings.columns])
 
 # ---------- TRANSFORM CREDITS ----------
 df_credits[['Building ID', 'Building Name']] = df_credits['Building ID - Name'].apply(lambda x: pd.Series(split_building_id_name(x)))
 
-# Drop unnecessary columns
-df_credits = df_credits.drop(columns=['Portfolio Name - ID', 'Property ID - Name', 'Building ID - Name'])
+# Drop unnecessary columns (only drop if they exist)
+credits_cols_to_drop = ['Portfolio Name - ID', 'Property ID - Name', 'Building ID - Name']
+df_credits = df_credits.drop(columns=[c for c in credits_cols_to_drop if c in df_credits.columns])
 
 # ---------- COMBINE DATA ----------
 # Merge on common keys
@@ -53,7 +48,7 @@ combined = pd.merge(
 # ---------- REORDER COLUMNS ----------
 final_columns = [
     'Building ID', 'Building Name', 'Suite', 'Manager',
-    'Occupant', 'Lease Id', 'Total Billings', 'Total Credits'
+    'Total Billings', 'Total Credits'
 ]
 for col in final_columns:
     if col not in combined.columns:
