@@ -162,7 +162,7 @@ cd C:\PDFValidation
 .\.venv\Scripts\Activate.ps1
 ```
 
-#### Example A: CM Rent Roll Extraction
+#### Example: CM Rent Roll Extraction
 
 ```powershell
 python -m utils.FetchData.CM.cm_rent_roll
@@ -173,22 +173,6 @@ This script:
 - Reads the CM rent roll PDF configured under `[CM.ROLL] / PDF`.
 - Parses totals and other metrics by building.
 - Writes an Excel file to the path configured as `[CM.ROLL] / ExtractedBuilding`.
-
-#### Example B: Financial Details Result Formatting
-
-This expects a comparison Excel with `MTD_Comparison` and `YTD_Comparison` sheets, typically produced by the FM variance comparison workflow.
-
-```powershell
-python -m utils.FetchData.FM.financial_details_result_format
-```
-
-This script:
-
-- Reads the comparison output at `[FM.VARIANCE] / ComparisonResult`.
-- Builds a "Financial Details" sheet.
-- Applies formatting (bold headers, shading, match highlighting, column widths).
-- Creates summary sheets for key metrics.
-
 
 If you encounter errors like missing files or missing config sections/keys, re-check `config.ini` and ensure you are executing commands from the project root with the virtual environment activated.
 
