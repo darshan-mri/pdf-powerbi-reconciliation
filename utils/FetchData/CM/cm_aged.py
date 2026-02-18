@@ -275,6 +275,8 @@ import re
 import time
 import pandas as pd
 from PyPDF2 import PdfReader
+import sys
+sys.path.append('C:\\PDFValidation')
 from utils.config_util import Config
 
 # ---------- CONFIG ----------
@@ -286,7 +288,10 @@ report_excel_path = cfg.get("CM.AGED", "ReportExcel")
 comparison_output_path = cfg.get("CM.AGED", "ComparisonResult")
 
 # ---------- REGEX PATTERNS ----------
-INVOICE_RE = re.compile(r'(\d{4})[- ](\d{6})')
+# Match invoice IDs that appear after "Status:"
+# Examples: Status:M04900-001323, Status:C04000-001700, Status:TCRCNY-002546, Status:TCRCNY-TC1210
+# Pattern: Status: followed by building code (uppercase letter + alphanumeric) + hyphen/space + 4-8 alphanumeric
+INVOICE_RE = re.compile(r'Status:([A-Z][A-Za-z0-9]{2,6})[- ]([A-Za-z0-9]{4,8})')
 MASTER_OCC_RE = re.compile(r'Master\s+Occupant\s+Id\s*[:\-]?\s*([0-9A-Za-z-]+)', re.IGNORECASE)
 SUITE_RE = re.compile(r'Suite\s*(?:Id|#|No\.?)?[:\s]*([0-9A-Za-z-]+)', re.IGNORECASE)
 TOTAL_RE = re.compile(
@@ -349,14 +354,17 @@ for block in invoice_blocks:
             "Month_4": totals[5],
         })
     else:
-        print(f"⚠️ Could not find totals in invoice {invoice_id}")
+        print(f"[WARNING] Could not find totals in invoice {invoice_id}")
 
 # ---------- SAVE TO EXCEL ----------
 df = pd.DataFrame(records)
+print(f"[INFO] Records in DataFrame before save: {len(df)}")
 df.to_excel(output_excel, index=False)
+print(f"[SAVED] Saved {len(df)} records to {output_excel}")
 
 # ---------- Split MasterOccupantId and SuiteID ----------
 df = pd.read_excel(output_excel)
+print(f"[READ] Records read back from Excel: {len(df)}")
 
 def split_master_suite(value):
     if pd.isna(value):
@@ -372,8 +380,9 @@ def split_master_suite(value):
 df[['MasterOccupantID', 'SuiteID']] = df['MasterOccupantID'].apply(lambda x: pd.Series(split_master_suite(x)))
 
 # Save updated Excel
+print(f"[SAVE] Saving {len(df)} records after split processing...")
 df.to_excel(output_excel, index=False)
-print(f"Done! 'MasterOccupantID' and 'SuiteID' updated in {output_excel}")
+print(f"[DONE] 'MasterOccupantID' and 'SuiteID' updated in {output_excel}")
 
 # ---------- COMPARE EXCELS ----------
 def compare_excels(extracted_path, report_path, output_path):
