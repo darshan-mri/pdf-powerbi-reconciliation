@@ -409,7 +409,7 @@ def detect_ledger_type(pdf_path: str) -> str:
 # ============================================================
 
 NUMERIC_LEASE_RE = re.compile(r'^(\d{4})[- ](\d{6})\b')
-ALPHANUM_LEASE_RE = re.compile(r'^([A-Z]\d{5})[- ]([A-Z0-9]{4,10})\b', re.I)
+ALPHANUM_LEASE_RE = re.compile(r'^([A-Z][A-Z0-9]{4,})[- ]([A-Z0-9]{4,})\b')
 
 
 def detect_us_format(pdf_path):
@@ -456,7 +456,11 @@ def extract_totals_with_ids_US(pdf_path):
                     continue
 
                 # ---------------- Lease Header ----------------
-                lease_match = lease_pattern.match(line_text)
+                # Try NUMERIC pattern first, then ALPHANUM
+                lease_match = NUMERIC_LEASE_RE.match(line_text)
+                if not lease_match:
+                    lease_match = ALPHANUM_LEASE_RE.match(line_text)
+
                 if lease_match:
                     current_building = lease_match.group(1).strip()
                     current_lease = lease_match.group(2).strip()

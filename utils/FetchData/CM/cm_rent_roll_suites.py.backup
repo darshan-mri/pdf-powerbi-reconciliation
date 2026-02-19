@@ -3,9 +3,6 @@ PDF Rent Roll Suite Extractor
 Extracts suite data from Commercial Property Rent Roll PDFs
 """
 
-import sys
-sys.path.append('C:\\PDFValidation')
-
 import re
 import pdfplumber
 import pandas as pd
@@ -57,19 +54,6 @@ def compare_with_report(df_extracted):
         df_extracted = df_extracted.copy()
         df_extracted.columns = df_extracted.columns.str.strip()
         df_report.columns = df_report.columns.str.strip()
-
-        # Map report column names to extracted column names for standardization
-        column_mapping = {
-            'Total Sq. Ft': 'GLA Sqft',
-            'Monthly Rent': 'Monthly Base Rent',
-            'Annual Rent PSF': 'Annual Rate PSF',
-            'Lease Start': 'Rent Start',
-            'Lease End': 'Expiration',
-            'Unit Status': 'Status'
-        }
-
-        df_report = df_report.rename(columns=column_mapping)
-        print(f"[INFO] Applied column name mapping to report data")
 
         print(f"\n[INFO] Extracted columns: {list(df_extracted.columns)}")
         print(f"[INFO] Report columns after preprocessing: {list(df_report.columns)}")
@@ -645,7 +629,166 @@ if not df.empty:
         print(df["Building Name"].value_counts())
         print()
 
-    # Save to Excel with multiple sheets
+print(f"Reading PDF: {pdf_path}")
+print(f"Output will be saved to: {output_excel}")
+print(f"Report Excel: {report_excel}")
+print(f"Comparison will be saved to: {comparison_output}\n")
+
+# ---------- COMPARISON FUNCTION ----------
+
+def compare_with_report(df_extracted):
+    """
+    Compare extracted suite data with Power BI report data
+
+    Args:
+        df_extracted: DataFrame from PDF extraction (Suites sheet)
+    """
+    try:
+        print(f"[INFO] Loading report Excel from: {report_excel}")
+        df_report = pd.read_excel(report_excel)
+
+        print(f"[INFO] Report columns: {list(df_report.columns)}")
+        print(f"[INFO] Report has {len(df_report)} rows")
+
+        # Preprocess: Extract Building ID from "Building ID - Name" column
+        if 'Building ID - Name' in df_report.columns:
+            print(f"[INFO] Preprocessing 'Building ID - Name' column...")
+
+            # Extract just the building ID (first part before " - ")
+            # Example: "B00100 - Brooklyn Army Terminal - A" → "B00100"
+            df_report['Building ID'] = df_report['Building ID - Name'].str.split(' - ').str[0].str.strip()
+
+            # Drop the original column
+            df_report = df_report.drop(columns=['Building ID - Name'])
+
+            print(f"[INFO] Created 'Building ID' column")
+            print(f"[INFO] Sample Building IDs: {df_report['Building ID'].head(5).tolist()}")
+
+        # Normalize column names for both dataframes
+        df_extracted.columns = df_extracted.columns.str.strip()
+        df_report.columns = df_report.columns.str.strip()
+
+        print(f"\n[INFO] Extracted columns: {list(df_extracted.columns)}")
+        print(f"[INFO] Report columns after preprocessing: {list(df_report.columns)}")
+
+        # Define numeric columns to compare
+        numeric_cols = [
+            "GLA Sqft",
+            "Monthly Base Rent",
+            "Annual Rate PSF",
+            "Monthly Cost Recovery",
+            "Expense Stop",
+            "Monthly Other Income"
+        ]
+
+        # Normalize Building ID and Suite ID for matching
+        for df in [df_extracted, df_report]:
+            if 'Building ID' in df.columns:
+                df['Building ID'] = df['Building ID'].astype(str).str.strip().str.upper()
+            if 'Suite ID' in df.columns:
+                df['Suite ID'] = df['Suite ID'].astype(str).str.strip()
+
+        # Convert numeric columns
+        for col in numeric_cols:
+            if col in df_extracted.columns:
+                df_extracted[col] = pd.to_numeric(df_extracted[col], errors='coerce').fillna(0)
+            if col in df_report.columns:
+                df_report[col] = pd.to_numeric(df_report[col], errors='coerce').fillna(0)
+
+        # Merge on Building ID and Suite ID
+        print(f"\n[INFO] Merging extracted and report data on Building ID and Suite ID...")
+        merged = pd.merge(
+            df_extracted,
+            df_report,
+            on=["Building ID", "Suite ID"],
+            how="outer",
+            suffixes=("_Extracted", "_Report"),
+            indicator=True
+        )
+
+        print(f"[INFO] Merged dataset has {len(merged)} rows")
+
+        # Add match status columns for each numeric field
+        for col in numeric_cols:
+            extracted_col = f"{col}_Extracted"
+            report_col = f"{col}_Report"
+
+            if extracted_col in merged.columns and report_col in merged.columns:
+                # Calculate variance
+                merged[f"{col}_Variance"] = merged[extracted_col] - merged[report_col]
+
+                # Calculate variance percentage
+                merged[f"{col}_Variance_%"] = merged.apply(
+                    lambda row: (
+                        0 if row[report_col] == 0
+                        else ((row[extracted_col] - row[report_col]) / abs(row[report_col]) * 100)
+                    ),
+                    axis=1
+                )
+
+                # Match status (within 0.01 tolerance)
+                merged[f"{col}_Match"] = (
+                    abs(merged[extracted_col] - merged[report_col]) < 0.01
+                )
+
+        # Overall match status
+        match_cols = [f"{col}_Match" for col in numeric_cols if f"{col}_Match" in merged.columns]
+        merged["Overall_Match"] = merged[match_cols].all(axis=1)
+
+        # Add source indicator
+        merged["Source_Status"] = merged["_merge"].map({
+            "both": "In Both",
+            "left_only": "Only in PDF",
+            "right_only": "Only in Report"
+        })
+
+        # Drop the _merge column
+        merged = merged.drop(columns=["_merge"])
+
+        # Save comparison results
+        print(f"\n[INFO] Saving comparison results to: {comparison_output}")
+        merged.to_excel(comparison_output, index=False)
+
+        # Print summary
+        print(f"\n{'='*70}")
+        print("COMPARISON SUMMARY")
+        print(f"{'='*70}")
+        print(f"Total records in merged dataset: {len(merged)}")
+        print(f"Records in both PDF and Report: {(merged['Source_Status'] == 'In Both').sum()}")
+        print(f"Records only in PDF: {(merged['Source_Status'] == 'Only in PDF').sum()}")
+        print(f"Records only in Report: {(merged['Source_Status'] == 'Only in Report').sum()}")
+
+        in_both = merged[merged['Source_Status'] == 'In Both']
+        if len(in_both) > 0:
+            matches = in_both['Overall_Match'].sum()
+            mismatches = len(in_both) - matches
+            match_rate = (matches / len(in_both)) * 100
+
+            print(f"\nOf records in both:")
+            print(f"  Matches: {matches} ({match_rate:.1f}%)")
+            print(f"  Mismatches: {mismatches} ({100-match_rate:.1f}%)")
+
+            # Show field-level mismatch breakdown
+            print(f"\nMismatches by field:")
+            for col in numeric_cols:
+                match_col = f"{col}_Match"
+                if match_col in in_both.columns:
+                    field_mismatches = (~in_both[match_col]).sum()
+                    if field_mismatches > 0:
+                        print(f"  {col}: {field_mismatches} mismatches")
+
+        print(f"\n[SUCCESS] Comparison completed and saved to {comparison_output}")
+
+    except FileNotFoundError:
+        print(f"[ERROR] Report Excel file not found: {report_excel}")
+        print(f"[INFO] Skipping comparison. Only extraction results saved.")
+    except Exception as e:
+        print(f"[ERROR] Comparison failed: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"[INFO] Only extraction results saved to {output_excel}")
+
+# ---------- HELPERS ----------
     with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name='Suites', index=False)
 
