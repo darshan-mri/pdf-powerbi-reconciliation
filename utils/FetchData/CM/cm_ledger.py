@@ -408,20 +408,37 @@ def detect_ledger_type(pdf_path: str) -> str:
 # ------------------ US EXTRACTION (AUTO FORMAT) -------------
 # ============================================================
 
+# Pattern 1: Pure numeric (old format): 1234-123456
 NUMERIC_LEASE_RE = re.compile(r'^(\d{4})[- ](\d{6})\b')
-ALPHANUM_LEASE_RE = re.compile(r'^([A-Z][A-Z0-9]{4,})[- ]([A-Z0-9]{4,})\b')
+
+# Pattern 2: Alphanumeric starting with letter (old format): B00100-BFCL01, TCRCNY-TC1273
+ALPHANUM_LETTER_START_RE = re.compile(r'^([A-Z][A-Z0-9]{4,})[- ]([A-Z0-9]{3,})\b')
+
+# Pattern 3: Alphanumeric starting with digits (new format): 300B01-005376, 502B06-002722
+ALPHANUM_DIGIT_START_RE = re.compile(r'^(\d{3,4}[A-Z]\d{2})[- ](\d{6})\b')
+
+# Pattern 4: Property ID starting with P (new format): P90010-003147
+PROPERTY_ID_RE = re.compile(r'^([A-Z]\d{5})[- ](\d{6})\b')
 
 
 def detect_us_format(pdf_path):
+    """Detect which format patterns exist in the PDF"""
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages[:5]:
             lines = group_words_to_lines(page.extract_words())
             for line_words in lines:
                 line_text = " ".join(w['text'] for w in line_words).strip()
+
+                # Check all patterns
                 if NUMERIC_LEASE_RE.match(line_text):
                     return "NUMERIC"
-                if ALPHANUM_LEASE_RE.match(line_text):
-                    return "ALPHANUM"
+                if ALPHANUM_LETTER_START_RE.match(line_text):
+                    return "ALPHANUM_LETTER"
+                if ALPHANUM_DIGIT_START_RE.match(line_text):
+                    return "ALPHANUM_DIGIT"
+                if PROPERTY_ID_RE.match(line_text):
+                    return "PROPERTY_ID"
+
     return "UNKNOWN"
 
 
@@ -433,11 +450,6 @@ def extract_totals_with_ids_US(pdf_path):
     current_lease = None
 
     format_type = detect_us_format(pdf_path)
-    lease_pattern = (
-        NUMERIC_LEASE_RE if format_type == "NUMERIC"
-        else ALPHANUM_LEASE_RE
-    )
-
     print(f"🔎 US Format Detected: {format_type}")
 
     with pdfplumber.open(pdf_path) as pdf:
@@ -455,11 +467,32 @@ def extract_totals_with_ids_US(pdf_path):
                 ]):
                     continue
 
+                # Skip column headers
+                if any(x in lower for x in ["property lease", "building lease"]):
+                    continue
+
+                # Skip grand total explicitly
+                if "grand" in lower and "total" in lower:
+                    continue
+
                 # ---------------- Lease Header ----------------
-                # Try NUMERIC pattern first, then ALPHANUM
+                # Try all patterns in order
+                lease_match = None
+
+                # Try Pattern 1: Pure numeric
                 lease_match = NUMERIC_LEASE_RE.match(line_text)
+
+                # Try Pattern 2: Letter start (B00100-BFCL01, TCRCNY-TC1273)
                 if not lease_match:
-                    lease_match = ALPHANUM_LEASE_RE.match(line_text)
+                    lease_match = ALPHANUM_LETTER_START_RE.match(line_text)
+
+                # Try Pattern 3: Digit start (300B01-005376, 502B06-002722)
+                if not lease_match:
+                    lease_match = ALPHANUM_DIGIT_START_RE.match(line_text)
+
+                # Try Pattern 4: Property ID (P90010-003147)
+                if not lease_match:
+                    lease_match = PROPERTY_ID_RE.match(line_text)
 
                 if lease_match:
                     current_building = lease_match.group(1).strip()
@@ -472,7 +505,9 @@ def extract_totals_with_ids_US(pdf_path):
                 is_bldg_total = (
                     ("totals for" in lower
                      or "building total" in lower
-                     or ("bldg" in lower and "total" in lower))
+                     or "property total" in lower
+                     or ("bldg" in lower and "total" in lower)
+                     or ("property" in lower and "total" in lower))
                     and "grand" not in lower
                 )
 
@@ -513,6 +548,8 @@ def extract_totals_with_ids_US(pdf_path):
 
     df_lease = df_lease.astype({"building": "string", "lease": "string"})
     df_bldg = df_bldg.astype({"building": "string"})
+
+    print(f"📊 Extracted: {len(df_lease)} lease/property totals, {len(df_bldg)} building/property totals")
 
     return df_lease, df_bldg
 
