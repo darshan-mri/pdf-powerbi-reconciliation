@@ -428,7 +428,7 @@ def detect_us_format(pdf_path):
             lines = group_words_to_lines(page.extract_words())
             for line_words in lines:
                 line_text = " ".join(w['text'] for w in line_words).strip()
-
+                
                 # Check all patterns
                 if NUMERIC_LEASE_RE.match(line_text):
                     return "NUMERIC"
@@ -438,7 +438,7 @@ def detect_us_format(pdf_path):
                     return "ALPHANUM_DIGIT"
                 if PROPERTY_ID_RE.match(line_text):
                     return "PROPERTY_ID"
-
+    
     return "UNKNOWN"
 
 
@@ -478,18 +478,18 @@ def extract_totals_with_ids_US(pdf_path):
                 # ---------------- Lease Header ----------------
                 # Try all patterns in order
                 lease_match = None
-
+                
                 # Try Pattern 1: Pure numeric
                 lease_match = NUMERIC_LEASE_RE.match(line_text)
-
+                
                 # Try Pattern 2: Letter start (B00100-BFCL01, TCRCNY-TC1273)
                 if not lease_match:
                     lease_match = ALPHANUM_LETTER_START_RE.match(line_text)
-
+                
                 # Try Pattern 3: Digit start (300B01-005376, 502B06-002722)
                 if not lease_match:
                     lease_match = ALPHANUM_DIGIT_START_RE.match(line_text)
-
+                
                 # Try Pattern 4: Property ID (P90010-003147)
                 if not lease_match:
                     lease_match = PROPERTY_ID_RE.match(line_text)

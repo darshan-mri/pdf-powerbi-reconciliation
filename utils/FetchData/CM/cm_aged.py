@@ -15,12 +15,15 @@ report_excel_path = cfg.get("CM.AGED", "ReportExcel")
 comparison_output_path = cfg.get("CM.AGED", "ComparisonResult")
 
 # ---------- REGEX PATTERNS ----------
-# Match invoice IDs that appear after "Status:"
-# Examples: Status:M04900-001323, Status:C04000-001700, Status:TCRCNY-002546, Status:TCRCNY-TC1210
-# Pattern: Status: followed by building code (uppercase letter + alphanumeric) + hyphen/space + 4-8 alphanumeric
-INVOICE_RE = re.compile(r'Status:([A-Z][A-Za-z0-9]{2,6})[- ]([A-Za-z0-9]{4,8})')
-MASTER_OCC_RE = re.compile(r'Master\s+Occupant\s+Id\s*[:\-]?\s*([0-9A-Za-z&/\s-]+?)(?=\s*(?:Current|Inactive|New|Day Due|Status|$))', re.IGNORECASE)
-SUITE_RE = re.compile(r'Suite\s*(?:Id|#|No\.?)?[:\s]*([0-9A-Za-z-]+)', re.IGNORECASE)
+# OLD FORMAT: Status:M04900-001323 (invoice ID immediately after Status:)
+# NEW FORMAT: Status: on one line, then 434b14-004864 on next line
+# Combined pattern that handles both:
+INVOICE_RE_OLD = re.compile(r'Status:\s*([A-Z][A-Za-z0-9]{2,6})[- ]([A-Za-z0-9]{4,8})')
+INVOICE_RE_NEW = re.compile(r'Status:\s*$.*?^([a-zA-Z0-9]{3,6})[- ]([a-zA-Z0-9]{4,8})', re.MULTILINE)
+
+MASTER_OCC_RE = re.compile(r'Master\s+Occupant\s+Id\s*[:\-]?\s*([0-9A-Za-z&/\s-]+?)(?=\s*(?:Current|Inactive|New|Day Due|Status|Suite|$))', re.IGNORECASE)
+# Updated to capture suite IDs with special chars: 3/4, S1&S2, ST 36, 7N/S, D-4
+SUITE_RE = re.compile(r'Suite\s*Id\s*[:\s]*([0-9A-Za-z/&\s-]+?)(?=\s*(?:Status|Current|Inactive|New|Day\s+Due|$))', re.IGNORECASE)
 TOTAL_RE = re.compile(
     r'(.+?)\s+Total:\s*([\d,.-]+)\s*([\d,.-]+)\s*([\d,.-]+)\s*([\d,.-]+)\s*([\d,.-]+)\s*([\d,.-]+)',
     re.IGNORECASE
@@ -38,32 +41,54 @@ for page in reader.pages:
 invoice_blocks = []
 lines = full_text.splitlines()
 current_block = []
+current_invoice_id = None
 
-for line in lines:
-    if INVOICE_RE.search(line):
-        if current_block:
-            invoice_blocks.append("\n".join(current_block))
+# Patterns:
+# Both OLD and NEW formats have invoice ID on same line as "Status:"
+# OLD: Status:M04900-001323 (uppercase start)
+# NEW: Status:434b14-004864 (lowercase start)
+INVOICE_PATTERN = re.compile(r'Status:\s*([A-Za-z0-9]{3,6})-([A-Za-z0-9]{4,9})\b', re.IGNORECASE)
+
+for i, line in enumerate(lines):
+    found_invoice = False
+    invoice_id = None
+
+    # Check for invoice ID pattern after "Status:"
+    match = INVOICE_PATTERN.search(line)
+    if match:
+        invoice_id = f"{match.group(1)}-{match.group(2)}"
+        found_invoice = True
+
+    if found_invoice:
+        # Save previous block
+        if current_block and current_invoice_id:
+            invoice_blocks.append((current_invoice_id, "\n".join(current_block)))
         current_block = [line]
-    else:
+        current_invoice_id = invoice_id
+    elif current_invoice_id:
         current_block.append(line)
 
 # Add last block
-if current_block:
-    invoice_blocks.append("\n".join(current_block))
+if current_block and current_invoice_id:
+    invoice_blocks.append((current_invoice_id, "\n".join(current_block)))
+
+print(f"[INFO] Extracted {len(invoice_blocks)} invoice blocks")
+if len(invoice_blocks) > 0:
+    print(f"[INFO] First 5 invoice IDs: {[inv_id for inv_id, _ in invoice_blocks[:5]]}")
 
 # ---------- PROCESS BLOCKS ----------
 records = []
 
-for block in invoice_blocks:
-    inv_match = INVOICE_RE.search(block)
-    invoice_id = f"{inv_match.group(1)}-{inv_match.group(2)}" if inv_match else None
-
+for invoice_id, block in invoice_blocks:
+    # Extract Master Occupant ID
     master_match = MASTER_OCC_RE.search(block)
-    master_id = master_match.group(1) if master_match else None
+    master_id = master_match.group(1).strip() if master_match else None
 
+    # Extract Suite ID
     suite_match = SUITE_RE.search(block)
     suite_id = suite_match.group(1).strip() if suite_match else None
 
+    # Extract Total line
     total_match = TOTAL_RE.search(block)
     if total_match:
         tenant_name = total_match.group(1).strip()
