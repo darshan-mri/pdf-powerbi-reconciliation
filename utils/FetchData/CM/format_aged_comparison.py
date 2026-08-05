@@ -4,7 +4,11 @@ Creates a formatted output with proper styling, grouping by Tenant,
 and highlighting for mismatched values.
 """
 import sys
-sys.path.append('C:\\PDFValidation')
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(_PROJECT_ROOT))
 
 import pandas as pd
 from openpyxl import Workbook
@@ -336,7 +340,5 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
-
-
 
 

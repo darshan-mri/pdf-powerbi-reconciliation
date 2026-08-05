@@ -3,7 +3,11 @@ import time
 import pandas as pd
 from PyPDF2 import PdfReader
 import sys
-sys.path.append('C:\\PDFValidation')
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(_PROJECT_ROOT))
 from utils.config_util import Config
 
 # ---------- CONFIG ----------

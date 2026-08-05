@@ -1,0 +1,41 @@
+{
+  "name": "bpg_rmaged",
+  "version": 1,
+  "report": "BPG.AGED",
+  "mode": "custom",
+  "description": "BPG RM Aged Delinquency - occupant level totals. Uses utils/BPG/RMAged.py, which walks backwards from each 'Total:' row (across page breaks) to find the header carrying the Property/Building/Suite IDs. A fixed-size window is not sufficient because charge detail can push the header ~50 lines away.",
+  "source": {
+    "config_key": "AgedPDF",
+    "handler": "utils.pipeline.adapters:rm_aged_occupants"
+  },
+  "output": {
+    "config_key": "ExtractedAuto",
+    "sheet": "Occupant Totals"
+  },
+  "record": {},
+  "fields": [
+    { "name": "ID_Combined", "strategy": "custom", "type": "str" },
+    { "name": "PropertyID", "strategy": "custom", "type": "str" },
+    { "name": "BuildingID", "strategy": "custom", "type": "str" },
+    { "name": "SuiteID", "strategy": "custom", "type": "str" },
+    { "name": "OccupantName", "strategy": "custom", "type": "str", "required": true },
+    { "name": "Normalized OccupantName", "strategy": "custom", "type": "str" },
+    { "name": "Total", "strategy": "custom", "type": "float", "required": true },
+    { "name": "Current", "strategy": "custom", "type": "float" },
+    { "name": "Month_1", "strategy": "custom", "type": "float" },
+    { "name": "Month_2", "strategy": "custom", "type": "float" },
+    { "name": "Month_3", "strategy": "custom", "type": "float" },
+    { "name": "Month_4", "strategy": "custom", "type": "float" },
+    { "name": "Page", "strategy": "custom", "type": "int" }
+  ],
+  "validation": {
+    "min_rows": 1,
+    "min_fill_rate": {
+      "OccupantName": 0.98,
+      "Total": 0.98,
+      "PropertyID": 0.80
+    }
+  },
+  "history": []
+}
+

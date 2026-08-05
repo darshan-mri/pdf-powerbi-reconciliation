@@ -1,0 +1,39 @@
+{
+  "name": "dolben_cmroll",
+  "version": 1,
+  "report": "DOLBEN.CMROLL",
+  "mode": "custom",
+  "description": "Dolben CM Rent Roll - suite level. Uses the purpose-built parser in utils/Dolben/CMRoll.py, which rebuilds text lines from pdfplumber character positions in content-stream order. That is required because occupant names are drawn overlapping the date/number columns, so plain text extraction scrambles them (e.g. 'LLC5/1/2017'). Produces the same canonical columns as CM.ROLL.",
+  "source": {
+    "config_key": "CMRollPDF",
+    "handler": "utils.pipeline.adapters:cm_roll_dolben"
+  },
+  "output": {
+    "config_key": "ExtractedAuto",
+    "sheet": "Suite Level"
+  },
+  "record": {},
+  "fields": [
+    { "name": "Building ID", "strategy": "custom", "type": "str", "required": true },
+    { "name": "Suite ID", "strategy": "custom", "type": "str", "required": true },
+    { "name": "Occupant Name", "strategy": "custom", "type": "str" },
+    { "name": "Rent Start", "strategy": "custom", "type": "str" },
+    { "name": "Expiration", "strategy": "custom", "type": "str" },
+    { "name": "GLA Sqft", "strategy": "custom", "type": "float" },
+    { "name": "Monthly Base Rent", "strategy": "custom", "type": "float" },
+    { "name": "Annual Rate PSF", "strategy": "custom", "type": "float" },
+    { "name": "Monthly Cost Recovery", "strategy": "custom", "type": "float" },
+    { "name": "Monthly Other Income", "strategy": "custom", "type": "float" },
+    { "name": "Section", "strategy": "custom", "type": "str" }
+  ],
+  "validation": {
+    "min_rows": 1,
+    "min_fill_rate": {
+      "Building ID": 0.98,
+      "Suite ID": 0.95,
+      "GLA Sqft": 0.60
+    }
+  },
+  "history": []
+}
+

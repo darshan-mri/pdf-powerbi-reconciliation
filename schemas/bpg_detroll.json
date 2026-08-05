@@ -1,0 +1,43 @@
+{
+  "name": "bpg_detroll",
+  "version": 1,
+  "report": "BPG.DETROLL",
+  "mode": "custom",
+  "description": "BPG Detailed Rent Roll - lease/unit level. Uses utils/BPG/DetRentRoll.py, which slices fixed x-coordinate windows per money column. That is required because large right-aligned values visually touch in the PDF (e.g. '471,329.60333,715.35') and cannot be split by whitespace.",
+  "source": {
+    "config_key": "DetRollPDF",
+    "handler": "utils.pipeline.adapters:det_rent_roll_units"
+  },
+  "output": {
+    "config_key": "ExtractedAuto",
+    "sheet": "Rent Roll"
+  },
+  "record": {},
+  "fields": [
+    { "name": "Property", "strategy": "custom", "type": "str", "required": true },
+    { "name": "Unit", "strategy": "custom", "type": "str", "required": true },
+    { "name": "Floor Plan", "strategy": "custom", "type": "str" },
+    { "name": "Building", "strategy": "custom", "type": "str" },
+    { "name": "Unit/Lease Status", "strategy": "custom", "type": "str" },
+    { "name": "Name", "strategy": "custom", "type": "str" },
+    { "name": "Normalized Name", "strategy": "custom", "type": "str" },
+    { "name": "Occupy Date", "strategy": "custom", "type": "str" },
+    { "name": "Lease Start Date", "strategy": "custom", "type": "str" },
+    { "name": "Lease End Date", "strategy": "custom", "type": "str" },
+    { "name": "Market Rent", "strategy": "custom", "type": "float" },
+    { "name": "Lease Rent", "strategy": "custom", "type": "float" },
+    { "name": "Total Billing", "strategy": "custom", "type": "float" },
+    { "name": "Deposit On Hand", "strategy": "custom", "type": "float" },
+    { "name": "Balance", "strategy": "custom", "type": "float" }
+  ],
+  "validation": {
+    "min_rows": 1,
+    "min_fill_rate": {
+      "Property": 0.98,
+      "Unit": 0.98,
+      "Market Rent": 0.50
+    }
+  },
+  "history": []
+}
+

@@ -1,6 +1,62 @@
-# PDFValidation
+# PDF-PowerBI Reconciliation
 
-Tools for extracting data from property management PDFs (aged delinquencies, ledgers, rent rolls, income statements) and validating it against Excel reports.
+Schema-driven PDF vs Power BI reconciliation framework with automated extraction,
+DAX-based report fetch, drift detection, guarded self-healing, and
+exception-first review outputs.
+
+## What This Framework Does
+
+- Extracts structured data from PDF reports (CM, RM, FM workflows)
+- Fetches matching report data from Power BI datasets via REST + DAX
+- Compares canonical fields with tolerance and mismatch diagnostics
+- Detects schema/layout drift and auto-heals declarative specs with regression guards
+- Produces "Needs Review" outputs so teams focus only on exceptions
+
+## Current Framework Scope
+
+Core modules (product-level):
+
+- `CM` (Commercial workflows)
+- `RM` (Residential workflows)
+- `FM` (Financial workflows)
+
+The framework is organized around these three main modules. Client-specific
+implementations can exist under the hood, but this README keeps scope and usage
+documented at the core-module level.
+
+Implementation details inside individual parsers evolve over time. This README
+focuses on framework behavior at a product level (extract, fetch, compare,
+drift handling, and exception review) rather than script-specific parsing rules.
+
+## Pipeline Quick Start
+
+Run the automated pipeline end-to-end (or per report):
+
+```powershell
+python utils/pipeline/orchestrator.py CM.ROLL
+python utils/pipeline/orchestrator.py CM.AGED --period 01/26
+python utils/pipeline/orchestrator.py all
+```
+
+Useful variants:
+
+```powershell
+python utils/pipeline/orchestrator.py all --skip-fetch --skip-compare
+python utils/pipeline/fetch_report.py CM.ROLL --probe
+python tests/test_self_healing.py
+```
+
+Core pipeline modules live under `utils/pipeline/` and report schemas live in
+`schemas/`.
+
+## Documentation Layout
+
+- `README.md` (this file): setup + current framework behavior
+- `PIPELINE_README.md`: compatibility pointer for older links/bookmarks
+- `documentation/`: supplementary design/comparison/JiraXray docs
+
+Both `README.md` and `PIPELINE_README.md` are kept intentionally; only
+`README.md` is authoritative for active instructions.
 
 ## Getting Started
 
@@ -24,10 +80,11 @@ python --version
 
 ```powershell
 cd C:\
-git clone https://github.com/darshan-mri/PDFValidation.git
-cd PDFValidation
+git clone https://github.com/darshan-mri/pdf-powerbi-reconciliation.git
+cd pdf-powerbi-reconciliation
 ```
 
+> If your remote URL or local folder name differs, use your actual values.
 
 ### 3. Create and activate a virtual environment
 
@@ -36,7 +93,7 @@ cd PDFValidation
 **PyCharm will create and manage the virtual environment for you automatically:**
 
 1. Open the project in PyCharm:
-   - `File` → `Open` → Select `C:\PDFValidation`
+   - `File` → `Open` → Select `C:\pdf-powerbi-reconciliation`
 
 2. PyCharm will detect that there's no virtual environment and show a notification:
    - Click **"Create Virtual Environment"** or **"Configure Python Interpreter"**
@@ -44,10 +101,10 @@ cd PDFValidation
    - PyCharm will create `.venv` automatically
 
 3. Alternatively, manually configure it:
-   - Go to `File` → `Settings` → `Project: PDFValidation` → `Python Interpreter`
+   - Go to `File` → `Settings` → `Project: pdf-powerbi-reconciliation` → `Python Interpreter`
    - Click the gear icon ⚙️ → `Add` → `Virtualenv Environment`
    - Select `New` and choose Python 3.11 as the base interpreter
-   - Location should be `C:\PDFValidation\.venv`
+   - Location should be `C:\pdf-powerbi-reconciliation\.venv`
    - Click `OK`
 
 4. **That's it!** PyCharm will:
@@ -60,7 +117,7 @@ cd PDFValidation
 
 #### Option B: Manual Setup (Command Line / VS Code Users)
 
-If you're not using PyCharm, create the virtual environment manually from the project root (`C:\PDFValidation`):
+If you're not using PyCharm, create the virtual environment manually from the project root (`C:\pdf-powerbi-reconciliation`):
 
 ```powershell
 python -m venv .venv
@@ -82,7 +139,7 @@ PyCharm will prompt you to install requirements automatically when it detects `r
    pip install -r requirements.txt
    ```
 3. **Or use the Package Manager UI:**
-   - Go to `File` → `Settings` → `Project: PDFValidation` → `Python Interpreter`
+   - Go to `File` → `Settings` → `Project: pdf-powerbi-reconciliation` → `Python Interpreter`
    - Click `+` to add packages individually, or
    - PyCharm may show a banner to install from `requirements.txt`
 
@@ -99,11 +156,16 @@ pip install -r requirements.txt
 
 This installs the libraries used throughout the project:
 
-- `camelot_py` – PDF table extraction
-- `pandas` – data processing and Excel I/O
-- `pdfplumber` – PDF text and layout parsing
-- `openpyxl` – Excel writing and formatting
-- `PyPDF2` – PDF reading for some CM scripts
+- `camelot_py` - PDF table extraction
+- `pandas` - data processing and Excel I/O
+- `pdfplumber` - PDF text and layout parsing
+- `openpyxl` - Excel writing and formatting
+- `PyPDF2` - PDF reading for some workflows
+- `PyMuPDF` - high-fidelity text extraction for selected reports
+- `requests` - Power BI REST API calls
+- `msal` - Azure AD auth for service principal / device code flows
+- `azure-identity` - managed identity / default credential auth
+- `azure-keyvault-secrets` - secure secret retrieval from Azure Key Vault
 
 ### 5. Configure `config.ini`
 
@@ -142,39 +204,33 @@ Notes:
 
 ### 6. Run a quick smoke test
 
-Once dependencies are installed and `config.ini` is set up, you can run one or more scripts to verify things work end‑to‑end.
+Once dependencies are installed and `config.ini` is set up, run the automated
+pipeline first (recommended), then optional legacy scripts if needed.
 
-#### For PyCharm Users:
+#### Pipeline-first checks (recommended)
 
-Simply right-click on any Python script (e.g., `utils/FetchData/CM/cm_rent_roll.py`) and select **"Run"**. PyCharm automatically uses the correct virtual environment - no activation needed!
+```powershell
+python utils/pipeline/orchestrator.py CM.ROLL --skip-fetch --skip-compare
+python utils/pipeline/orchestrator.py CM.AGED --skip-fetch --skip-compare
+python tests/test_self_healing.py
+```
 
-Or use PyCharm's terminal (venv is auto-activated):
+#### Fetch from Power BI (when `*.PBI` config is filled)
+
+```powershell
+python utils/pipeline/fetch_report.py CM.ROLL
+python utils/pipeline/fetch_report.py CM.AGED
+```
+
+#### Optional: run legacy extraction script directly
+
 ```powershell
 python -m utils.FetchData.CM.cm_rent_roll
 ```
 
-#### For Command Line / VS Code Users:
-
-Always activate the virtual environment first:
-
-```powershell
-cd C:\PDFValidation
-.\.venv\Scripts\Activate.ps1
-```
-
-#### Example: CM Rent Roll Extraction
-
-```powershell
-python -m utils.FetchData.CM.cm_rent_roll
-```
-
-This script:
-
-- Reads the CM rent roll PDF configured under `[CM.ROLL] / PDF`.
-- Parses totals and other metrics by building.
-- Writes an Excel file to the path configured as `[CM.ROLL] / ExtractedBuilding`.
-
-If you encounter errors like missing files or missing config sections/keys, re-check `config.ini` and ensure you are executing commands from the project root with the virtual environment activated.
+If you encounter missing-file or missing-config errors, re-check `config.ini`
+and ensure you are executing commands from the project root with the virtual
+environment activated.
 
 ## Troubleshooting
 
@@ -228,7 +284,7 @@ If you encounter issues with package installations or runtime errors, we recomme
 5. **Configure your IDE to use Python 3.11:**
    
    **For PyCharm (Recommended):**
-   - Go to `File` → `Settings` → `Project: PDFValidation` → `Python Interpreter`
+   - Go to `File` → `Settings` → `Project: pdf-powerbi-reconciliation` → `Python Interpreter`
    - Click the gear icon → `Add`
    - Select `Existing Environment` and browse to `.venv\Scripts\python.exe`
    - Or create a new virtualenv using Python 3.11 as the base interpreter
@@ -262,4 +318,3 @@ We strongly recommend using **PyCharm** (Community Edition is free) for this pro
 - **PDF parsing errors**: Verify PDF files exist at paths specified in `config.ini`
 - **Excel file errors**: Check that Excel files are not open in Excel while running scripts
 - **Permission errors**: Run PowerShell as Administrator if needed
-

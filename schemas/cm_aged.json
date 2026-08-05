@@ -1,0 +1,159 @@
+{
+  "name": "cm_aged",
+  "version": 2,
+  "report": "CM.AGED",
+  "mode": "block_end",
+  "description": "CM Aged Delinquency. A record is a tenant block that closes on its '<Tenant> Total:' summary line. Header fields are read from the block header lines; the six aging buckets are read from the Total line only.",
+  "source": {
+    "config_key": "PDF",
+    "engine": "pypdf2"
+  },
+  "output": {
+    "config_key": "ExtractedAuto",
+    "sheet": "Sheet1"
+  },
+  "record": {
+    "end_patterns": [
+      "Total:\\s*-?[\\d,]*\\d\\.\\d{2}"
+    ],
+    "start_candidates": [
+      "Total\\s*:\\s*-?[\\d,]*\\d\\.\\d{2}",
+      "Tenant\\s+Total\\s*:"
+    ],
+    "skip_contains": [
+      "Database:",
+      "Page:",
+      "Production database"
+    ],
+    "number_pattern": "-?[\\d,]*\\d\\.\\d{2}",
+    "max_block_lines": 400
+  },
+  "fields": [
+    {
+      "name": "InvoiceID",
+      "strategy": "regex",
+      "patterns": [
+        "LastPayment:\\s*([A-Za-z0-9]{3,8}-[A-Za-z0-9]{3,9})"
+      ],
+      "candidates": [
+        "Last\\s*Payment\\s*:?\\s*([A-Za-z0-9]{3,8}-[A-Za-z0-9]{3,9})",
+        "Status:\\s*([A-Za-z0-9]{3,6}-[A-Za-z0-9]{4,9})"
+      ],
+      "group": 1,
+      "type": "str"
+    },
+    {
+      "name": "Tenant",
+      "strategy": "regex",
+      "line_pattern": "Total:\\s*-?[\\d,]*\\d\\.\\d{2}",
+      "patterns": [
+        "^\\s*(.+?)\\s*Total:"
+      ],
+      "candidates": [
+        "^\\s*(.+?)\\s*Tenant\\s*Total\\s*:",
+        "^\\s*(.+?)\\s*Total\\s*:"
+      ],
+      "group": 1,
+      "type": "str",
+      "transform": "collapse_space",
+      "required": true
+    },
+    {
+      "name": "MasterOccupantID",
+      "strategy": "regex",
+      "patterns": [
+        "Master\\s*Occupant\\s*Id\\s*:\\s*([A-Za-z0-9&/-]+)"
+      ],
+      "candidates": [
+        "Master\\s*Occupant\\s*(?:Id|ID)?\\s*[:\\-]?\\s*([A-Za-z0-9&/-]+)",
+        "Occupant\\s*Id\\s*[:\\-]?\\s*([A-Za-z0-9&/-]+)"
+      ],
+      "group": 1,
+      "type": "str",
+      "transform": "collapse_space"
+    },
+    {
+      "name": "SuiteID",
+      "strategy": "regex",
+      "patterns": [
+        "(?m)^\\s*(\\S+)\\s+(?:Inactive|Current|New)"
+      ],
+      "candidates": [
+        "(?m)^\\s*(\\S+)\\s+(?:Inactive|Current|New)",
+        "Suite\\s*(?:Id|ID|#)?\\s*[:\\-]?\\s*([0-9A-Za-z/&-]+)",
+        "(?m)^\\s*([0-9]{3,5})\\s+(?:Inactive|Current|New)"
+      ],
+      "group": 1,
+      "type": "str",
+      "transform": "collapse_space"
+    },
+    {
+      "name": "Total",
+      "strategy": "number",
+      "index": 0,
+      "line_pattern": "Total:\\s*-?[\\d,]*\\d\\.\\d{2}",
+      "type": "float",
+      "required": true
+    },
+    {
+      "name": "Current",
+      "strategy": "number",
+      "index": 1,
+      "line_pattern": "Total:\\s*-?[\\d,]*\\d\\.\\d{2}",
+      "type": "float"
+    },
+    {
+      "name": "Month_1",
+      "strategy": "number",
+      "index": 2,
+      "line_pattern": "Total:\\s*-?[\\d,]*\\d\\.\\d{2}",
+      "type": "float"
+    },
+    {
+      "name": "Month_2",
+      "strategy": "number",
+      "index": 3,
+      "line_pattern": "Total:\\s*-?[\\d,]*\\d\\.\\d{2}",
+      "type": "float"
+    },
+    {
+      "name": "Month_3",
+      "strategy": "number",
+      "index": 4,
+      "line_pattern": "Total:\\s*-?[\\d,]*\\d\\.\\d{2}",
+      "type": "float"
+    },
+    {
+      "name": "Month_4",
+      "strategy": "number",
+      "index": 5,
+      "line_pattern": "Total:\\s*-?[\\d,]*\\d\\.\\d{2}",
+      "type": "float"
+    }
+  ],
+  "validation": {
+    "min_rows": 1,
+    "min_fill_rate": {
+      "Tenant": 0.95,
+      "Total": 0.95,
+      "Current": 0.90,
+      "Month_4": 0.90
+    },
+    "exclude_rows": {
+      "Tenant": "^\\s*BLDG\\b|^\\s*Grand\\s+Total|^\\s*Report\\s+Total"
+    },
+    "drop_if_all_null": [
+      "Total",
+      "Current",
+      "Month_1",
+      "Month_2",
+      "Month_3",
+      "Month_4"
+    ]
+  },
+  "history": []
+}
+
+
+
+

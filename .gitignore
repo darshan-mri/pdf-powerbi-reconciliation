@@ -26,3 +26,7 @@ config.local.ini
 
 #Files folder
 files/
+
+# Cleanup archives (restore points for removed files)
+_archive/
+

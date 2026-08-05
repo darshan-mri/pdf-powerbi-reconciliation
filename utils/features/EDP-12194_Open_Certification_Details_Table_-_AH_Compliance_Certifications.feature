@@ -1,0 +1,52 @@
+Feature: Open Certification Details Table - AH Compliance Certifications
+  
+  Scenario: Interacting with the "Open Certification Details Table" Table in the AH Compliance Certifications Report
+    
+    Given the user is logged into PowerBI
+    And the user has selected the appropriate Workspace
+    And the user opens the "AH Compliance Certifications" report
+
+    Then all visuals in the report should load without visual breakage
+    And the "Open Certification Details Table" table should be visible
+
+    Then the "Open Certification Details" table should display the following columns:
+      | Column Name                 |
+      | Certification Phase         |
+      | Action Type	                |
+      | User                        |
+      | Creation Date               |
+      | Last Date                   |
+      | Application Effective Date  |
+      | Head of Household	          |
+
+
+    When the user clicks on the up/down Arrow for following column Names:
+      | Column Name                 |
+      | Certification Phase         |
+      | Action Type	                |
+      | User                        |
+      | Creation Date               |
+      | Last Date                   |
+      | Application Effective Date  |
+      | Head of Household	          |
+
+    Then the table data should be sorted in ascending or descending order based on Column Values
+    When the user clicks on any row, column, or record in the table
+
+    Then the opacity of unselected rows/columns/records should decrease
+    And cross-filtering should be applied to the following visuals:
+
+      # KeyCards
+      | Visual Name           |
+      | Open Certifications   |
+
+      # Other Visuals
+      | Visual Name                                             |
+      | Certifications Completed Line Chart                     |
+      | Open Certifications by Phase Clusterd Bar Chart         |
+      | Open Certifications by User Clustered Bar Chart         |
+      | Open Certification Older Than 10 Days Table             |
+
+    When the user deselects the selected row/column/record
+
+    Then the table data should revert to its default state

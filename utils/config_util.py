@@ -19,14 +19,23 @@ class Config:
     @staticmethod
     def _get_project_root(project_name="PDFValidation") -> Path:
         """
-        Traverse upwards until a folder with name `project_name` is found.
+        Traverse upwards to find the project root.
+
+        Priority:
+        1. A directory containing `config.ini`
+        2. A directory with both `utils/` and `requirements.txt`
+        3. Backward-compatible fallback to explicit folder name
         """
         path = Path(__file__).resolve().parent
         while path != path.parent:
+            if (path / "config.ini").exists():
+                return path
+            if (path / "utils").is_dir() and (path / "requirements.txt").exists():
+                return path
             if path.name == project_name:
                 return path
             path = path.parent
-        raise FileNotFoundError(f"Project root '{project_name}' not found.")
+        raise FileNotFoundError("Project root not found (expected config.ini at root).")
 
     # ------------------------
     # Path resolver
@@ -45,7 +54,8 @@ class Config:
     # ------------------------
     def _load_config(self):
         if self._config is None:
-            self._config = configparser.ConfigParser()
+            # interpolation=None so DAX/regex values containing '%' or '$' are safe
+            self._config = configparser.ConfigParser(interpolation=None)
             if os.path.exists(self._config_file):
                 self._config.read(self._config_file)
             else:
@@ -71,3 +81,44 @@ class Config:
                 raise KeyError(f"Section '{section}' or key '{key}' not found in config.") from e
         except configparser.Error as e:
             raise KeyError(f"Error reading config: {e}")
+
+    # ------------------------
+    # Raw value (never treated as a path)
+    # ------------------------
+    def get_raw(self, section, key, default=None):
+        """Get a config value verbatim - no path resolution.
+
+        Use for GUIDs, DAX queries, regex patterns and any value that may
+        contain '/' or '\\' but is NOT a file path.
+        """
+        try:
+            return self.get(section, key, resolve_path=False)
+        except KeyError:
+            return default
+
+    # ------------------------
+    # Booleans / section helpers
+    # ------------------------
+    def get_bool(self, section, key, default=False):
+        val = self.get_raw(section, key)
+        if val is None or str(val).strip() == "":
+            return default
+        return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+    def get_float(self, section, key, default=0.0):
+        val = self.get_raw(section, key)
+        try:
+            return float(str(val))
+        except (TypeError, ValueError):
+            return default
+
+    def has_section(self, section) -> bool:
+        self._load_config()
+        return self._config.has_section(section)
+
+    def section_items(self, section) -> dict:
+        """All key/value pairs of a section as a plain dict (unresolved)."""
+        self._load_config()
+        if not self._config.has_section(section):
+            return {}
+        return dict(self._config.items(section))

@@ -3,3 +3,12 @@ pandas==2.2.2
 pdfplumber==0.11.0
 openpyxl==3.1.2
 PyPDF2==3.0.1
+PyMuPDF==1.24.9
+
+# --- Power BI automation ---------------------------------------------------
+requests==2.32.3
+# Needed for AuthMode = certificate or device_code
+msal==1.31.0
+# Needed for AuthMode = managed_identity or key_vault
+azure-identity==1.19.0
+azure-keyvault-secrets==4.9.0

@@ -1,13 +1,16 @@
 """
-PDF Rent Roll Suite Extractor
-Extracts suite data from Commercial Property Rent Roll PDFs
+PDF Rent Roll Extractor
 """
 
 import sys
-sys.path.append('C:\\PDFValidation')
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(_PROJECT_ROOT))
 
 import re
-import pdfplumber
+import fitz
 import pandas as pd
 from utils.config_util import Config
 
@@ -15,681 +18,270 @@ from utils.config_util import Config
 cfg = Config()
 pdf_path = cfg.get("CM.ROLL", "PDF")
 output_excel = cfg.get("CM.ROLL", "ExtractedSuites")
-report_excel = cfg.get("CM.ROLL", "ReportExcel")
-comparison_output = cfg.get("CM.ROLL", "ComparisonResult")
+
+debug_file = str(output_excel).replace(".xlsx", "_DEBUG.txt")
 
 print(f"Reading PDF: {pdf_path}")
-print(f"Output will be saved to: {output_excel}")
-print(f"Report Excel: {report_excel}")
-print(f"Comparison will be saved to: {comparison_output}\n")
+print(f"Saving to: {output_excel}")
+print(f"Debug file: {debug_file}\n")
 
-# ---------- COMPARISON FUNCTION ----------
-
-def compare_with_report(df_extracted):
-    """
-    Compare extracted suite data with Power BI report data
-
-    Args:
-        df_extracted: DataFrame from PDF extraction (Suites sheet)
-    """
-    try:
-        print(f"[INFO] Loading report Excel from: {report_excel}")
-        df_report = pd.read_excel(report_excel)
-
-        print(f"[INFO] Report has {len(df_report)} rows")
-        print(f"[INFO] Report columns: {list(df_report.columns)}")
-
-        # Preprocess: Extract Building ID from "Building ID - Name" column
-        if 'Building ID - Name' in df_report.columns:
-            print(f"[INFO] Preprocessing 'Building ID - Name' column...")
-
-            # Extract just the building ID (first part before " - ")
-            # Example: "B00100 - Brooklyn Army Terminal - A" → "B00100"
-            df_report['Building ID'] = df_report['Building ID - Name'].str.split(' - ').str[0].str.strip()
-
-            # Drop the original column
-            df_report = df_report.drop(columns=['Building ID - Name'])
-
-            print(f"[INFO] Created 'Building ID' column")
-            print(f"[INFO] Sample Building IDs from report: {df_report['Building ID'].head(5).tolist()}")
-
-        # Normalize column names for both dataframes
-        df_extracted = df_extracted.copy()
-        df_extracted.columns = df_extracted.columns.str.strip()
-        df_report.columns = df_report.columns.str.strip()
-
-        # Map report column names to extracted column names for standardization
-        column_mapping = {
-            'Total Sq. Ft': 'GLA Sqft',
-            'Monthly Rent': 'Monthly Base Rent',
-            'Annual Rent PSF': 'Annual Rate PSF',
-            'Lease Start': 'Rent Start',
-            'Lease End': 'Expiration',
-            'Unit Status': 'Status'
-        }
-
-        df_report = df_report.rename(columns=column_mapping)
-        print(f"[INFO] Applied column name mapping to report data")
-
-        print(f"\n[INFO] Extracted columns: {list(df_extracted.columns)}")
-        print(f"[INFO] Report columns after preprocessing: {list(df_report.columns)}")
-
-        # Define numeric columns to compare (use only columns that exist in both)
-        all_numeric_cols = [
-            "GLA Sqft",
-            "Monthly Base Rent",
-            "Annual Rate PSF",
-            "Monthly Cost Recovery",
-            "Expense Stop",
-            "Monthly Other Income"
-        ]
-
-        # Filter to only include columns present in both dataframes
-        numeric_cols = [col for col in all_numeric_cols
-                       if col in df_extracted.columns and col in df_report.columns]
-
-        print(f"[INFO] Numeric columns to compare: {numeric_cols}")
-
-        # Normalize Building ID and Suite ID for matching
-        for df in [df_extracted, df_report]:
-            if 'Building ID' in df.columns:
-                df['Building ID'] = df['Building ID'].astype(str).str.strip().str.upper()
-            if 'Suite ID' in df.columns:
-                df['Suite ID'] = df['Suite ID'].astype(str).str.strip().str.upper()
-
-        # Convert numeric columns
-        for col in numeric_cols:
-            df_extracted[col] = pd.to_numeric(df_extracted[col], errors='coerce').fillna(0)
-            df_report[col] = pd.to_numeric(df_report[col], errors='coerce').fillna(0)
-
-        # Merge on Building ID and Suite ID
-        print(f"\n[INFO] Merging extracted and report data on Building ID and Suite ID...")
-        merged = pd.merge(
-            df_extracted,
-            df_report,
-            on=["Building ID", "Suite ID"],
-            how="outer",
-            suffixes=("_Extracted", "_Report"),
-            indicator=True
-        )
-
-        print(f"[INFO] Merged dataset has {len(merged)} rows")
-
-        # Add match status columns for each numeric field
-        for col in numeric_cols:
-            extracted_col = f"{col}_Extracted"
-            report_col = f"{col}_Report"
-
-            # Calculate variance
-            merged[f"{col}_Variance"] = merged[extracted_col] - merged[report_col]
-
-            # Calculate variance percentage
-            merged[f"{col}_Variance_%"] = merged.apply(
-                lambda row: (
-                    0 if row[report_col] == 0
-                    else ((row[extracted_col] - row[report_col]) / abs(row[report_col]) * 100)
-                ),
-                axis=1
-            )
-
-            # Match status (within 0.01 tolerance)
-            merged[f"{col}_Match"] = (
-                abs(merged[extracted_col] - merged[report_col]) < 0.01
-            )
-
-        # Overall match status
-        match_cols = [f"{col}_Match" for col in numeric_cols]
-        if match_cols:
-            merged["Overall_Match"] = merged[match_cols].all(axis=1)
-
-        # Add source indicator
-        merged["Source_Status"] = merged["_merge"].map({
-            "both": "In Both",
-            "left_only": "Only in PDF",
-            "right_only": "Only in Report"
-        })
-
-        # Drop the _merge column
-        merged = merged.drop(columns=["_merge"])
-
-        # Save comparison results
-        print(f"\n[INFO] Saving comparison results to: {comparison_output}")
-        merged.to_excel(comparison_output, index=False)
-
-        # Print summary
-        print(f"\n{'='*70}")
-        print("COMPARISON SUMMARY")
-        print(f"{'='*70}")
-        print(f"Total records in merged dataset: {len(merged)}")
-        print(f"Records in both PDF and Report: {(merged['Source_Status'] == 'In Both').sum()}")
-        print(f"Records only in PDF: {(merged['Source_Status'] == 'Only in PDF').sum()}")
-        print(f"Records only in Report: {(merged['Source_Status'] == 'Only in Report').sum()}")
-
-        in_both = merged[merged['Source_Status'] == 'In Both']
-        if len(in_both) > 0:
-            matches = in_both['Overall_Match'].sum()
-            mismatches = len(in_both) - matches
-            match_rate = (matches / len(in_both)) * 100
-
-            print(f"\nOf records in both:")
-            print(f"  Matches: {matches} ({match_rate:.1f}%)")
-            print(f"  Mismatches: {mismatches} ({100-match_rate:.1f}%)")
-
-            # Show field-level mismatch breakdown
-            if mismatches > 0:
-                print(f"\nMismatches by field:")
-                for col in numeric_cols:
-                    match_col = f"{col}_Match"
-                    if match_col in in_both.columns:
-                        field_mismatches = (~in_both[match_col]).sum()
-                        if field_mismatches > 0:
-                            print(f"  {col}: {field_mismatches} mismatches")
-
-        print(f"\n[SUCCESS] Comparison completed and saved to {comparison_output}")
-        return True
-
-    except FileNotFoundError:
-        print(f"[ERROR] Report Excel file not found: {report_excel}")
-        print(f"[INFO] Skipping comparison. Only extraction results saved.")
-        return False
-    except Exception as e:
-        print(f"[ERROR] Comparison failed: {e}")
-        import traceback
-        traceback.print_exc()
-        print(f"[INFO] Only extraction results saved to {output_excel}")
-        return False
 
 # ---------- HELPERS ----------
 
-def clean_numeric(value):
-    """Convert string to float, handling commas and parentheses"""
-    if not value or value == "":
+def is_new_row(line):
+    return bool(re.match(r'^\d{3}[A-Z]\d{2}\b', line))
+
+
+def is_noise(line):
+    return bool(re.match(r'^(C\d+|GST|T\d+|R\d+|FIT)', line))
+
+
+def clean_numeric(val):
+    if not val:
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    cleaned = str(value).replace(",", "").replace("(", "-").replace(")", "").strip()
-    if cleaned == "" or cleaned == "-":
-        return None
+    val = val.replace(",", "").replace("(", "-").replace(")", "")
     try:
-        return float(cleaned)
+        return float(val)
     except:
         return None
 
-def is_building_suite_id(text):
-    """
-    Check if text looks like a building/suite ID.
-    Supports:
-    - Uppercase: B00100DOCK, M05500SITE
-    - Lowercase: m05511SITE, m05515SITE
-    - Multi-letter format: TCRCNY12H, TCRCNY26D, TCRCNY9G (6 letters + alphanumeric)
 
-    Patterns:
-    1. Letter + 5 digits + optional suite: B00100DOCK, m05511SITE
-    2. 5-6 letters followed by alphanumeric: TCRCNY12H, TCRCNY26D
-    """
-    # Pattern 1: Letter + 5 digits (e.g., B00100, m05511)
-    if re.match(r'^[a-zA-Z]\d{5}', text):
-        return True
+def clean_text(text):
+    text = re.sub(r'([a-zA-Z])(\d{1,2}/\d{1,2}/\d{4})', r'\1 \2', text)
+    text = re.sub(r'(\d{4})([A-Za-z])', r'\1 \2', text)
+    return text
 
-    # Pattern 2: 5-6 letters followed by alphanumeric (e.g., TCRCNY12H, TCRCNY26D, TCRCNY9G)
-    if re.match(r'^[a-zA-Z]{5,6}\w+', text):
-        return True
 
-    return False
+# ---------- EXTRACT TEXT ----------
 
-def is_future_rent_line(text):
-    """Check if this is a future rent increase line (starts with BAS, CAM, CON, etc.)"""
-    return bool(re.match(r'^(BAS|CAM|CON|GST|MST|HM|PER|LIC|ABR|ADR|INT|BSR|PAR|MGT|BTR)\s+\d{1,2}/\d{1,2}/\d{4}', text))
+doc = fitz.open(pdf_path)
+full_text = ""
 
-def parse_suite_row(row_text):
-    """
-    Parse a suite data row from the rent roll PDF.
-    Expected format: BldgIdSuiteId OccupantName RentStart Expiration GLASqft MonthlyBaseRent AnnualRatePSF...
-    Example: B001009DOCK United Parcel Service, Inc. 11/20/2025 1/17/2026 0
-    """
-    # Remove future rent data (everything after BAS, CAM, CON, etc.)
-    future_rent_pattern = r'(BAS|CAM|CON|GST|MST|HM|PER|LIC|ABR|ADR|INT|BSR|PAR|MGT|BTR)\s+\d{1,2}/\d{1,2}/\d{4}'
-    match = re.search(future_rent_pattern, row_text)
-    if match:
-        row_text = row_text[:match.start()].strip()
+for page in doc:
+    full_text += page.get_text("text") + "\n"
 
-    # Split into tokens
-    tokens = row_text.split()
-    if len(tokens) < 2:
-        return None
+lines = full_text.split("\n")
 
-    # Extract Building ID and Suite ID (combined like "B001002M" or "TCRCNY9BHA")
-    building_suite = tokens[0]
-    if not is_building_suite_id(building_suite):
-        return None
 
-    # Split building and suite ID
-    # For format like B00100DOCK: Building ID = B00100 (6 chars), Suite ID = DOCK
-    # For format like TCRCNY12H: Building ID = TCRCNY (6 chars), Suite ID = 12H
-    # For format like TCRCNY26D: Building ID = TCRCNY (6 chars), Suite ID = 26D
+# ---------- BUILD ROWS WITH STATUS ----------
 
-    # Determine building ID length based on format
-    if re.match(r'^[a-zA-Z]\d{5}', building_suite):
-        # Pattern: Letter + 5 digits (e.g., B00100, m05511)
-        building_id = building_suite[:6].upper()
-        suite_id = building_suite[6:] if len(building_suite) > 6 else ""
-    elif re.match(r'^[a-zA-Z]{6}', building_suite):
-        # Pattern: Exactly 6 letters (e.g., TCRCNY)
-        # Building ID is first 6 letters, rest is suite ID
-        building_id = building_suite[:6].upper()
-        suite_id = building_suite[6:] if len(building_suite) > 6 else ""
+rows = []
+current = ""
+current_status = "Unknown"
+
+for line in lines:
+    line = line.strip()
+
+    if not line:
+        continue
+
+    # STATUS DETECTION
+    if "Occupied Units" in line:
+        current_status = "Occupied"
+        continue
+    elif "Vacant Units" in line:
+        current_status = "Vacant"
+        continue
+    elif "New Leases" in line:
+        current_status = "New"
+        continue
+    elif "Excluded" in line:
+        current_status = "Excluded"
+        continue
+
+    # Skip headers
+    if any(x in line for x in ["Database:", "Page:", "Rent Roll"]):
+        continue
+
+    # Skip noise
+    if is_noise(line):
+        continue
+
+    # Build rows
+    if is_new_row(line):
+        if current:
+            rows.append((current, current_status))
+        current = line
     else:
-        # Fallback: assume 6 character building ID
-        building_id = building_suite[:6].upper()
-        suite_id = building_suite[6:] if len(building_suite) > 6 else ""
+        if current:
+            current += " " + line
 
-    # Find ALL date-like patterns in tokens
-    date_pattern = r'^\d{1,2}/\d{1,2}/\d{4}$'
-    date_indices = [i for i in range(len(tokens)) if re.match(date_pattern, tokens[i])]
+if current:
+    rows.append((current, current_status))
 
-    # Determine if this is a vacant row (starts with "Vacant" or has "Vacant" as second token)
-    is_vacant = len(tokens) > 1 and (tokens[1].lower() == "vacant" or (len(tokens) > 2 and tokens[1].lower() == "vacant" and tokens[2].lower() in ["unknown", ""]))
+print(f"Rows built: {len(rows)}")
 
-    # Skip if this looks like a header row (contains "Vacant Unknown" as header text)
-    if len(tokens) > 2 and tokens[1] == "Vacant" and tokens[2] == "Unknown":
-        return None
 
-    if is_vacant:
-        # Vacant format: B00100SUITE Vacant 7,800 (where 7,800 is the sqft)
-        # Or: B00100SUITE Vacant Unknown (skip this - it's a header)
-        sqft_value = None
-        for i in range(2, len(tokens)):
-            if tokens[i].lower() not in ["vacant", "unknown", ""]:
-                sqft_value = clean_numeric(tokens[i])
-                break
+# ---------- PARSE UNIT ROWS (WITH DEBUG) ----------
 
-        return {
-            "Building ID": building_id,
-            "Suite ID": suite_id,
-            "Occupant Name": "Vacant",
-            "Rent Start": "",
-            "Expiration": "",
-            "GLA Sqft": sqft_value,
-            "Monthly Base Rent": None,
-            "Annual Rate PSF": None,
-            "Monthly Cost Recovery": None,
-            "Expense Stop": None,
-            "Monthly Other Income": None,
+unit_records = []
+debug_rows = []
+
+for idx, (row, status) in enumerate(rows):
+
+    original_row = row
+
+    try:
+        row = clean_text(row)
+        tokens = row.split()
+
+        debug_info = {
+            "Row Index": idx,
+            "Raw Row": original_row,
+            "Cleaned Row": row,
+            "Tokens": str(tokens),
+            "Status": status
         }
 
-    elif len(date_indices) >= 2:
-        # Has both rent start and expiration dates
-        first_date_idx = date_indices[0]
-        second_date_idx = date_indices[1]
+        if len(tokens) < 2:
+            debug_info["Error"] = "Too few tokens"
+            debug_rows.append(debug_info)
+            continue
 
-        # Occupant name is between position 1 and first date
-        occupant_name = " ".join(tokens[1:first_date_idx])
+        building_id = tokens[0]
+        second_token = tokens[1]
 
-        rent_start = tokens[first_date_idx]
-        expiration = tokens[second_date_idx]
+        # ---------- SUITE ----------
+        if second_token.lower() == "vacant":
+            suite_id = ""
+            occupant = "N/A"
+            is_vacant = True
+        else:
+            suite_id = second_token
+            is_vacant = False
 
-        # Numeric fields come after the second date
-        numeric_start = second_date_idx + 1
-        numeric_tokens = tokens[numeric_start:]
-        numeric_values = [clean_numeric(t) for t in numeric_tokens if clean_numeric(t) is not None]
+        # ---------- DATES ----------
+        date_matches = list(re.finditer(r'\d{1,2}/\d{1,2}/\d{4}', row))
+        rent_start = date_matches[0].group() if len(date_matches) > 0 else ""
+        expiration = date_matches[1].group() if len(date_matches) > 1 else ""
 
-        return {
+        # ---------- OCCUPANT ----------
+        if not is_vacant:
+            if date_matches:
+                first_date_pos = date_matches[0].start()
+                prefix = row[:first_date_pos]
+
+                prefix = prefix.replace(building_id, "", 1)
+                prefix = prefix.replace(suite_id, "", 1)
+
+                occupant = prefix.strip()
+            else:
+                occupant = " ".join(tokens[2:])
+        else:
+            occupant = "N/A"
+
+        # ---------- NUMERIC ----------
+        nums = re.findall(r'[-\d,]+\.\d+', row)
+        nums = [clean_numeric(n) for n in nums]
+
+        # ---------- DEBUG FLAGS ----------
+        debug_info.update({
             "Building ID": building_id,
             "Suite ID": suite_id,
-            "Occupant Name": occupant_name,
+            "Occupant": occupant,
+            "Dates": [m.group() for m in date_matches],
+            "Numbers": nums
+        })
+
+        if not suite_id:
+            debug_info["Warning"] = "Missing Suite ID"
+        elif len(occupant) < 3:
+            debug_info["Warning"] = "Short Occupant"
+        elif any(char.isdigit() for char in occupant):
+            debug_info["Warning"] = "Occupant has numbers"
+
+        debug_rows.append(debug_info)
+
+        # ---------- FINAL ----------
+        unit_records.append({
+            "Building ID": building_id,
+            "Suite ID": suite_id,
+            "Occupant Name": occupant,
             "Rent Start": rent_start,
             "Expiration": expiration,
-            "GLA Sqft": numeric_values[0] if len(numeric_values) > 0 else None,
-            "Monthly Base Rent": numeric_values[1] if len(numeric_values) > 1 else None,
-            "Annual Rate PSF": numeric_values[2] if len(numeric_values) > 2 else None,
-            "Monthly Cost Recovery": numeric_values[3] if len(numeric_values) > 3 else None,
-            "Expense Stop": numeric_values[4] if len(numeric_values) > 4 else None,
-            "Monthly Other Income": numeric_values[5] if len(numeric_values) > 5 else None,
-        }
+            "GLA Sqft": nums[0] if len(nums) > 0 else None,
+            "Monthly Base Rent": nums[1] if len(nums) > 1 else None,
+            "Annual Rate PSF": nums[2] if len(nums) > 2 else None,
+            "Status": status
+        })
 
-    elif len(date_indices) == 1:
-        # Only one date
-        date_idx = date_indices[0]
-        occupant_name = " ".join(tokens[1:date_idx])
-        rent_start = tokens[date_idx]
+    except Exception as e:
+        debug_rows.append({
+            "Row Index": idx,
+            "Raw Row": original_row,
+            "Error": str(e)
+        })
 
-        # Numeric fields after the date
-        numeric_start = date_idx + 1
-        numeric_tokens = tokens[numeric_start:]
-        numeric_values = [clean_numeric(t) for t in numeric_tokens if clean_numeric(t) is not None]
 
-        return {
-            "Building ID": building_id,
-            "Suite ID": suite_id,
-            "Occupant Name": occupant_name,
-            "Rent Start": rent_start,
-            "Expiration": "",
-            "GLA Sqft": numeric_values[0] if len(numeric_values) > 0 else None,
-            "Monthly Base Rent": numeric_values[1] if len(numeric_values) > 1 else None,
-            "Annual Rate PSF": numeric_values[2] if len(numeric_values) > 2 else None,
-            "Monthly Cost Recovery": numeric_values[3] if len(numeric_values) > 3 else None,
-            "Expense Stop": numeric_values[4] if len(numeric_values) > 4 else None,
-            "Monthly Other Income": numeric_values[5] if len(numeric_values) > 5 else None,
-        }
+# ---------- TOTALS ----------
 
-    else:
-        # No dates found - try to extract what we can
-        occupant_name = " ".join(tokens[1:])
-        numeric_values = [clean_numeric(t) for t in tokens[1:] if clean_numeric(t) is not None]
+total_records = []
+capturing = False
+buffer = []
+current_building_id = "Unknown"
 
-        return {
-            "Building ID": building_id,
-            "Suite ID": suite_id,
-            "Occupant Name": occupant_name,
-            "Rent Start": "",
-            "Expiration": "",
-            "GLA Sqft": numeric_values[0] if len(numeric_values) > 0 else None,
-            "Monthly Base Rent": numeric_values[1] if len(numeric_values) > 1 else None,
-            "Annual Rate PSF": numeric_values[2] if len(numeric_values) > 2 else None,
-            "Monthly Cost Recovery": numeric_values[3] if len(numeric_values) > 3 else None,
-            "Expense Stop": numeric_values[4] if len(numeric_values) > 4 else None,
-            "Monthly Other Income": numeric_values[5] if len(numeric_values) > 5 else None,
-        }
+for line in lines:
+    line = line.strip()
 
-# ---------- EXTRACTION ----------
+    if is_new_row(line):
+        current_building_id = line.split()[0]
 
-records = []
-totals_records = []  # New: Store building totals
-current_section = "Unknown"
-current_building = "Unknown"
-current_building_id = "Unknown"  # Track the actual building ID
-in_grand_total = False  # Track if we're in the Grand Total section
+    if "Totals:" in line or "Grand Total" in line:
+        capturing = True
+        buffer = [line]
+        continue
 
-try:
-    with pdfplumber.open(pdf_path) as pdf:
-        print(f"Total pages: {len(pdf.pages)}\n")
+    if capturing:
+        buffer.append(line)
 
-        for page_num, page in enumerate(pdf.pages, 1):
-            text = page.extract_text()
-            if not text:
-                continue
+        if line == "" or is_new_row(line):
+            text = " ".join(buffer)
 
-            lines = text.split('\n')
+            nums = re.findall(r'[-\d,]+\.\d+', text)
+            nums = [clean_numeric(n) for n in nums]
 
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
+            perc = re.search(r'\d+\.\d+%', text)
 
-                # Check for section headers (case-insensitive and handle spacing variations)
-                if re.search(r'Occupied\s*Suites', line, re.IGNORECASE):
-                    current_section = "Occupied"
-                    print(f"Page {page_num}: Section = {current_section}")
-                    continue
-                elif re.search(r'Vacant\s*Suites', line, re.IGNORECASE):
-                    current_section = "Vacant"
-                    print(f"Page {page_num}: Section = {current_section}")
-                    continue
-                elif re.search(r'New\s*Leases?', line, re.IGNORECASE):
-                    current_section = "New Lease"
-                    print(f"Page {page_num}: Section = {current_section}")
-                    continue
+            total_records.append({
+                "Building ID": current_building_id,
+                "Type": "Grand Total" if "Grand" in text else "Building Total",
+                "Percentage": perc.group(0) if perc else "",
+                "Square Feet": nums[0] if len(nums) > 0 else None,
+                "Monthly Base Rent": nums[1] if len(nums) > 1 else None,
+                "Monthly Cost Recovery": nums[2] if len(nums) > 2 else None,
+                "Monthly Other Income": nums[3] if len(nums) > 3 else None,
+            })
 
-                # Check for building name
-                if "BldgStatus:" in line:
-                    match = re.search(r"^(.+?)\s+BldgStatus:", line)
-                    if match:
-                        current_building = match.group(1).strip()
-                        print(f"Page {page_num}: Building = {current_building}")
-                    continue
+            capturing = False
+            buffer = []
 
-                # Check if this is a "Grand Total:" line
-                if "Grand Total:" in line or "Grand Totals:" in line:
-                    # Set flag to indicate we're in Grand Total section
-                    in_grand_total = True
 
-                    # Parse the grand total line - use "Grand Total" as building name
-                    # Format: "Grand Total: OccupiedSqft: 100.00% 1Units 49,500 21,202.54 0.00 0.00"
+# ---------- DATAFRAMES ----------
 
-                    # Remove "Grand Total:" or "Grand Totals:" prefix
-                    data_part = line.replace("Grand Total:", "").replace("Grand Totals:", "").strip()
+df_units = pd.DataFrame(unit_records)
+df_totals = pd.DataFrame(total_records)
+df_debug = pd.DataFrame(debug_rows)
 
-                    # Split into tokens
-                    tokens = data_part.split()
-                    if len(tokens) >= 2:
-                        label = tokens[0]  # e.g., "OccupiedSqft:"
-                        remaining = tokens[1:]
+print(f"\nUnits Extracted: {len(df_units)}")
+print(f"Totals Extracted: {len(df_totals)}\n")
 
-                        # Extract percentage, units, sqft, and amounts
-                        percentage = ""
-                        units = ""
-                        sqft = None
-                        amounts = []
-
-                        for token in remaining:
-                            if "%" in token:
-                                percentage = token
-                            elif "Units" in token or "Unit" in token:
-                                units = token
-                            else:
-                                num = clean_numeric(token)
-                                if num is not None:
-                                    if sqft is None:
-                                        sqft = num
-                                    else:
-                                        amounts.append(num)
-
-                        totals_record = {
-                            "Building": "Grand Total",  # Use "Grand Total" for grand totals
-                            "Type": label.replace(":", ""),
-                            "Percentage": percentage,
-                            "Units": units,
-                            "Square Feet": sqft,
-                            "Monthly Base Rent": amounts[0] if len(amounts) > 0 else None,
-                            "Monthly Cost Recovery": amounts[1] if len(amounts) > 1 else None,
-                            "Monthly Other Income": amounts[2] if len(amounts) > 2 else None,
-                        }
-                        totals_records.append(totals_record)
-                        print(f"  [GRAND TOTAL] {label} {percentage} {units} - {sqft:,.0f} sqft" if sqft else f"  [GRAND TOTAL] {label}")
-                    continue
-
-                # Check if this is a regular "Totals:" line with data (building-specific)
-                if "Totals:" in line and "Sqft:" in line:
-                    # Parse the totals summary line
-                    # Format: "Totals: OccupiedSqft: 100.00% 1Units 49,500 21,202.54 0.00 0.00"
-                    # This is the main line with actual data - need to parse it properly
-
-                    # Remove "Totals: " prefix
-                    data_part = line.replace("Totals:", "").strip()
-
-                    # Split into tokens
-                    tokens = data_part.split()
-                    if len(tokens) >= 2:
-                        label = tokens[0]  # e.g., "OccupiedSqft:"
-                        remaining = tokens[1:]
-
-                        # Extract percentage, units, sqft, and amounts
-                        percentage = ""
-                        units = ""
-                        sqft = None
-                        amounts = []
-
-                        for token in remaining:
-                            if "%" in token:
-                                percentage = token
-                            elif "Units" in token or "Unit" in token:
-                                units = token
-                            else:
-                                num = clean_numeric(token)
-                                if num is not None:
-                                    if sqft is None:
-                                        sqft = num
-                                    else:
-                                        amounts.append(num)
-
-                        totals_record = {
-                            "Building": current_building_id,  # Use building ID instead of building name
-                            "Type": label.replace(":", ""),
-                            "Percentage": percentage,
-                            "Units": units,
-                            "Square Feet": sqft,
-                            "Monthly Base Rent": amounts[0] if len(amounts) > 0 else None,
-                            "Monthly Cost Recovery": amounts[1] if len(amounts) > 1 else None,
-                            "Monthly Other Income": amounts[2] if len(amounts) > 2 else None,
-                        }
-                        totals_records.append(totals_record)
-                        print(f"  [TOTAL] {label} {percentage} {units} - {sqft:,.0f} sqft" if sqft else f"  [TOTAL] {label}")
-                    continue
-
-                # Check if this is a totals detail line (different format)
-                totals_match = re.match(r'^(Occupied\s*Sqft:|Leased/Unoccupied\s*Sqft:|Vacant\s*Sqft:|Area\s*Included\s*Not\s*Counted\s*Sqft:|Total\s*Sqft:)', line, re.IGNORECASE)
-                if totals_match:
-                    # Parse individual totals line
-                    # Format: "OccupiedSqft: 100.00% 1Units 49,500 21,202.54"
-                    tokens = line.split()
-                    if len(tokens) >= 2:
-                        label = tokens[0]  # e.g., "OccupiedSqft:"
-                        remaining = tokens[1:]
-
-                        # Extract percentage, units, sqft, and amounts
-                        percentage = ""
-                        units = ""
-                        sqft = None
-                        amounts = []
-
-                        for token in remaining:
-                            if "%" in token:
-                                percentage = token
-                            elif "Units" in token or "Unit" in token:
-                                units = token
-                            else:
-                                num = clean_numeric(token)
-                                if num is not None:
-                                    if sqft is None:
-                                        sqft = num
-                                    else:
-                                        amounts.append(num)
-
-                        totals_record = {
-                            "Building": "Grand Total" if in_grand_total else current_building_id,  # Use "Grand Total" if in grand total section
-                            "Type": label.replace(":", ""),
-                            "Percentage": percentage,
-                            "Units": units,
-                            "Square Feet": sqft,
-                            "Monthly Base Rent": amounts[0] if len(amounts) > 0 else None,
-                            "Monthly Cost Recovery": amounts[1] if len(amounts) > 1 else None,
-                            "Monthly Other Income": amounts[2] if len(amounts) > 2 else None,
-                        }
-                        totals_records.append(totals_record)
-                        print(f"  [TOTAL] {label} - {sqft} sqft")
-                    continue
-
-                # Skip other headers and header-like lines
-                if any(keyword in line for keyword in ["Bldg Id", "Suit Id", "Database:", "Rent Roll", "Page:", "BLDGID", "SuitId", "OccupantName", "RentStart", "Expiration", "BaseRent", "RatePSF", "CostRecovery", "OtherIncome", "MonthlyAmount", "Vacant\tUnknown"]):
-                    continue
-
-                # Skip lines that look like pure headers
-                if line.count('\t') > 5 and any(word in line for word in ["Sqft", "Rent", "Recovery", "Income"]):
-                    continue
-
-                # Skip future rent increase lines
-                if is_future_rent_line(line):
-                    continue
-
-                # Try to parse as suite row
-                if is_building_suite_id(line.split()[0] if line.split() else ""):
-                    parsed = parse_suite_row(line)
-                    if parsed:
-                        # Update current building ID from the parsed suite record
-                        current_building_id = parsed["Building ID"]
-
-                        parsed["Status"] = current_section
-                        parsed["Building Name"] = current_building
-                        records.append(parsed)
-                        print(f"  [OK] {parsed['Building ID']}{parsed['Suite ID']} - {parsed['Occupant Name'][:40]}")
-except Exception as e:
-    print(f"Error during extraction: {e}")
-    import traceback
-    traceback.print_exc()
 
 # ---------- OUTPUT ----------
 
-df = pd.DataFrame(records)
-df_totals = pd.DataFrame(totals_records)
+with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
 
-print(f"\n{'='*70}")
-print(f"Extracted {len(df)} suite records")
-print(f"Extracted {len(df_totals)} building totals records")
-print(f"{'='*70}\n")
-
-if not df.empty:
-    # Reorder columns
-    column_order = [
-        "Building ID", "Suite ID", "Occupant Name", "Rent Start", "Expiration",
-        "GLA Sqft", "Monthly Base Rent", "Annual Rate PSF",
-        "Monthly Cost Recovery", "Expense Stop", "Monthly Other Income",
-        "Status", "Building Name"
-    ]
-    df = df[column_order]
-
-    # Replace "Vacant" with "N/A" in Occupant Name column
-    df['Occupant Name'] = df['Occupant Name'].replace('Vacant', 'N/A')
-
-    print("First 10 rows:")
-    print(df.head(10).to_string())
-    print("\n")
-
-    # Summary statistics
-    if "Status" in df.columns:
-        print("Summary by Status:")
-        print(df["Status"].value_counts())
-        print()
-
-    if "Building Name" in df.columns:
-        print("Summary by Building:")
-        print(df["Building Name"].value_counts())
-        print()
-
-    # Save to Excel with multiple sheets
-    with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Suites', index=False)
-
-        if not df_totals.empty:
-            # Reorder totals columns (only include columns that exist)
-            available_cols = df_totals.columns.tolist()
-            desired_order = [
-                "Building", "Type", "Percentage", "Units",
-                "Square Feet", "Monthly Base Rent", "Monthly Cost Recovery", "Monthly Other Income"
-            ]
-            totals_column_order = [col for col in desired_order if col in available_cols]
-            # Add any remaining columns not in the desired order
-            for col in available_cols:
-                if col not in totals_column_order:
-                    totals_column_order.append(col)
-
-            df_totals = df_totals[totals_column_order]
-            df_totals.to_excel(writer, sheet_name='Building Totals', index=False)
-            print(f"\nBuilding Totals Preview (first 15):")
-            print(df_totals.head(15).to_string())
-
-    print(f"\nSaved to: {output_excel}")
-    print(f"  - Sheet 1: 'Suites' ({len(df)} rows)")
-    print(f"  - Sheet 2: 'Building Totals' ({len(df_totals)} rows)")
+    if not df_units.empty:
+        df_units.to_excel(writer, sheet_name="Unit Level", index=False)
 
     if not df_totals.empty:
-        print(f"\nBuilding Totals Summary:")
-        print(f"  Total buildings with totals: {df_totals['Building'].nunique()}")
-        print(f"  Total records: {len(df_totals)}")
+        df_totals.to_excel(writer, sheet_name="Property Totals", index=False)
 
-    # ---------- COMPARISON WITH POWER BI REPORT ----------
-    print(f"\n{'='*70}")
-    print("STARTING COMPARISON WITH POWER BI REPORT")
-    print(f"{'='*70}\n")
+    df_debug.to_excel(writer, sheet_name="DEBUG", index=False)
 
-    compare_with_report(df)
+# Write debug text
+with open(debug_file, "w", encoding="utf-8") as f:
+    for d in debug_rows:
+        f.write(str(d) + "\n\n")
 
-else:
-    print("No data extracted! Check PDF structure.")
-    # Save empty dataframes
-    with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Suites', index=False)
-        df_totals.to_excel(writer, sheet_name='Building Totals', index=False)
-
-
-
-
+print(f"Saved to: {output_excel}")
+print(f"Debug saved to: {debug_file}")

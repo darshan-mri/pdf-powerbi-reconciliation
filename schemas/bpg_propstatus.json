@@ -1,0 +1,42 @@
+{
+  "name": "bpg_propstatus",
+  "version": 1,
+  "report": "BPG.PROPSTATUS",
+  "mode": "custom",
+  "description": "BPG RM Property Status Report - one occupancy Totals row per property. Uses utils/BPG/PropertyStatusReport.py, which tracks the 'Occupancy Information' section and stops at 'Projected Occupancy' so only the current-occupancy Totals line is captured.",
+  "source": {
+    "config_key": "PropStatusPDF",
+    "handler": "utils.pipeline.adapters:property_status"
+  },
+  "output": {
+    "config_key": "ExtractedAuto",
+    "sheet": "Property Status"
+  },
+  "record": {},
+  "fields": [
+    { "name": "Property Code", "strategy": "custom", "type": "str", "required": true },
+    { "name": "Property Name", "strategy": "custom", "type": "str" },
+    { "name": "Avg Sqft", "strategy": "custom", "type": "float" },
+    { "name": "Avg Market", "strategy": "custom", "type": "float" },
+    { "name": "Avg $/Sqft", "strategy": "custom", "type": "float" },
+    { "name": "Total Units", "strategy": "custom", "type": "int", "required": true },
+    { "name": "Total Leased", "strategy": "custom", "type": "int" },
+    { "name": "Total Available", "strategy": "custom", "type": "int" },
+    { "name": "Total Other", "strategy": "custom", "type": "int" },
+    { "name": "Occupancy %", "strategy": "custom", "type": "float" },
+    { "name": "Move Ins", "strategy": "custom", "type": "int" },
+    { "name": "Move Outs", "strategy": "custom", "type": "int" },
+    { "name": "Turn Over", "strategy": "custom", "type": "int" },
+    { "name": "Notice Given", "strategy": "custom", "type": "int" }
+  ],
+  "validation": {
+    "min_rows": 1,
+    "min_fill_rate": {
+      "Property Code": 0.98,
+      "Total Units": 0.98,
+      "Occupancy %": 0.95
+    }
+  },
+  "history": []
+}
+
